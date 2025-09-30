@@ -1,0 +1,27 @@
+{
+  "name": "stellar-auth-backend",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Backend server for Stellar SEP-10 authentication",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "keywords": [
+    "stellar",
+    "sep-10",
+    "authentication"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@stellar/typescript-wallet-sdk": "^1.9.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}
