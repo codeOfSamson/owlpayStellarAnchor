@@ -24,7 +24,7 @@ app.get('/health', (req, res) => {
     res.json({ status: 'ok', message: 'Server is running' });
 });
 
-// SEP-10 Authentication endpoint
+// SEP-10 Authentication endpoint (using Wallet SDK)
 app.post('/api/auth/sep10', async (req, res) => {
     try {
         const { secretKey, homeDomain } = req.body;
@@ -35,21 +35,16 @@ app.post('/api/auth/sep10', async (req, res) => {
             });
         }
 
-        console.log('Authenticating with home domain:', homeDomain);
+        console.log('Starting SEP-10 authentication for:', homeDomain);
 
-        // Create anchor object
+        // Use Wallet SDK for authentication
         const anchor = wallet.anchor({ homeDomain });
-
-        // Create signing keypair from secret key
         const authKey = SigningKeypair.fromSecret(secretKey);
-
-        // Get SEP-10 authentication
         const sep10 = await anchor.sep10();
-        
-        // Authenticate and get token
         const authToken = await sep10.authenticate({ accountKp: authKey });
 
         console.log('Authentication successful');
+        console.log('Token type:', typeof authToken);
 
         res.json({ 
             success: true,
@@ -96,6 +91,19 @@ app.post('/api/anchor/info', async (req, res) => {
     }
 });
 
+// Helper function to validate and get asset currency
+async function getAssetCurrency(anchor, assetCode) {
+    const info = await anchor.getInfo();
+    const currency = info.currencies.find(({ code }) => code === assetCode);
+    
+    if (!currency?.code || !currency?.issuer) {
+        throw new Error(
+            `Anchor does not support ${assetCode} asset or is not correctly configured on TOML file`
+        );
+    }
+    
+    return currency;
+}
 
 // Generic SEP-24 transaction endpoint (handles both deposit and withdraw)
 app.post('/api/sep24/transaction', async (req, res) => {
@@ -127,17 +135,11 @@ app.post('/api/sep24/transaction', async (req, res) => {
         }
 
         console.log(`Starting ${transactionType} for ${assetCode}`);
+        console.log('Auth token length:', authToken?.length);
 
         // Create anchor and validate asset
-
         const anchor = wallet.anchor({ homeDomain });
-        const info = await anchor.getInfo();
-        const currency = info.currencies.find(({ code }) => code === assetCode);
-        if (!currency?.code || !currency?.issuer) {
-            throw new Error(
-                `Anchor does not support ${assetCode} asset or is not correctly configured on TOML file`,
-            );
-        }
+        await getAssetCurrency(anchor, assetCode);
 
         // Build common parameters
         const commonParams = {
@@ -147,20 +149,32 @@ app.post('/api/sep24/transaction', async (req, res) => {
             extraFields: amount ? { amount } : {}
         };
 
+        console.log('Calling anchor SEP-24 endpoint...');
+
         // Call appropriate method based on transaction type
         const sep24 = anchor.sep24();
         let result;
 
-        if (transactionType === 'deposit') {
-            result = await sep24.deposit({
-                ...commonParams,
-                destinationAccount: account
+        try {
+            if (transactionType === 'deposit') {
+                result = await sep24.deposit({
+                    ...commonParams,
+                    destinationAccount: account
+                });
+            } else {
+                result = await sep24.withdraw({
+                    ...commonParams,
+                    withdrawalAccount: account
+                });
+            }
+        } catch (anchorError) {
+            console.error('Anchor rejected request:', anchorError);
+            console.error('Anchor error details:', {
+                message: anchorError.message,
+                response: anchorError.response?.data,
+                status: anchorError.response?.status
             });
-        } else {
-            result = await sep24.withdraw({
-                ...commonParams,
-                withdrawalAccount: account
-            });
+            throw anchorError;
         }
 
         console.log(`${transactionType} initiated:`, result.id);
@@ -183,6 +197,85 @@ app.post('/api/sep24/transaction', async (req, res) => {
     }
 });
 
+// Get transaction status (SEP-24 polling endpoint)
+app.post('/api/sep24/transaction/status', async (req, res) => {
+    try {
+        const { id, homeDomain, authToken } = req.body;
+
+        if (!id || !homeDomain || !authToken) {
+            return res.status(400).json({
+                error: 'Missing required fields',
+                required: ['id', 'homeDomain', 'authToken']
+            });
+        }
+
+        console.log('Checking transaction status:', id);
+
+        // Create anchor object
+        const anchor = wallet.anchor({ homeDomain });
+        
+        // Get transaction info from anchor
+        const sep24 = anchor.sep24();
+        const transaction = await sep24.getTransactionBy({
+            authToken,
+            id
+        });
+
+        console.log('Transaction status:', transaction.status);
+
+        res.json({
+            success: true,
+            transaction,
+            message: 'Transaction status retrieved'
+        });
+
+    } catch (error) {
+        console.error('Transaction status error:', error);
+        res.status(500).json({
+            error: 'Failed to get transaction status',
+            message: error.message,
+            details: error.response?.data || error.toString()
+        });
+    }
+});
+
+// Get all transactions for a user
+app.post('/api/sep24/transactions/list', async (req, res) => {
+    try {
+        const { homeDomain, authToken, assetCode } = req.body;
+
+        if (!homeDomain || !authToken || !assetCode) {
+            return res.status(400).json({
+                error: 'Missing required fields',
+                required: ['homeDomain', 'authToken', 'assetCode']
+            });
+        }
+
+        console.log('Getting all transactions for asset:', assetCode);
+
+        const anchor = wallet.anchor({ homeDomain });
+        const sep24 = anchor.sep24();
+        
+        const transactions = await sep24.getTransactionsForAsset({
+            authToken,
+            assetCode
+        });
+
+        res.json({
+            success: true,
+            transactions,
+            message: 'Transactions retrieved'
+        });
+
+    } catch (error) {
+        console.error('Transactions error:', error);
+        res.status(500).json({
+            error: 'Failed to get transactions',
+            message: error.message,
+            details: error.response?.data || error.toString()
+        });
+    }
+});
 
 app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);

@@ -2,10 +2,14 @@ import { useState } from 'react'
 import reactLogo from './assets/react.svg'
 import viteLogo from '/vite.svg'
 import './App.css'
+import { walletSdk, SigningKeypair, DefaultSigner, DomainSigner } from '@stellar/typescript-wallet-sdk'
 
 const AUTH_SECRET_KEY = import.meta.env.VITE_AUTH_SECRET_KEY;
 const WP_ACCESS_HOST = import.meta.env.VITE_WP_ACCESS_HOST;
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+const CLIENT_DOMAIN = import.meta.env.VITE_CLIENT_DOMAIN || 'http://localhost:3001';
+
+
 
 
 
@@ -15,7 +19,17 @@ function App() {
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [isDepositing, setIsDepositing] = useState(false);
   const [transactionData, setTransactionData] = useState(null);
+  const [currentTransactionStatus, setCurrentTransactionStatus] = useState(null);
   const [error, setError] = useState(null);
+
+  let wallet = walletSdk.Wallet.TestNet();
+
+
+const signer = new DomainSigner("https://demo-wallet-server.stellar.org/sign", {
+  Authorization: `Bearer 123456`,
+});
+
+
 
 const handleAuthenticate = async () => {
     setIsAuthenticating(true);
@@ -31,7 +45,8 @@ const handleAuthenticate = async () => {
             },
             body: JSON.stringify({
                 secretKey: AUTH_SECRET_KEY,
-                homeDomain: WP_ACCESS_HOST
+                homeDomain: WP_ACCESS_HOST,
+                clientDomain: CLIENT_DOMAIN
             })
         });
 
@@ -50,6 +65,26 @@ const handleAuthenticate = async () => {
         setIsAuthenticating(false);
     }
 }
+
+
+const getSep10AuthToken = async () => {
+  const anchor = wallet.anchor({ homeDomain:'anchor-stage.owlpay.com' });
+  const authKey = SigningKeypair.fromSecret(AUTH_SECRET_KEY);
+  const sep10 = await anchor.sep10();
+  const signer = DefaultSigner;
+
+  const getAuthToken = async () => {
+    return sep10.authenticate({
+      accountKp: authKey,
+      walletSigner: signer,
+      clientDomain: CLIENT_DOMAIN
+    });
+  };
+
+  const authToken = await getAuthToken();
+
+  return authToken;
+};
 
 const handleTransaction = async (transactionType) => {
     setIsDepositing(true);
@@ -87,6 +122,37 @@ const handleTransaction = async (transactionType) => {
         setIsDepositing(false);
     }
   }
+
+const handleCheckTransactionStatus = async () => {
+    setError(null);
+    
+    try {
+        console.log('Checking status for transaction:', transactionData.id);
+
+        const response = await fetch(`${BACKEND_URL}/api/sep24/transaction/status`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                id: transactionData.id, // Changed from transactionId
+                authToken: authToken,
+                homeDomain: WP_ACCESS_HOST
+            })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.message || 'Status check failed');
+        }
+        setCurrentTransactionStatus(data);
+        console.log('Status retrieved!', data);
+    } catch (error) {
+        console.error('Status check failed:', error);
+        setError(error.message);
+    }
+}
 
   const handleLogout = () => {
     setAuthToken(null);
@@ -228,6 +294,49 @@ const handleTransaction = async (transactionType) => {
                 overflow: 'auto'
               }}>
                 {JSON.stringify(transactionData, null, 2)}
+              </pre>
+            </details>
+              <button 
+              onClick={(e) => handleCheckTransactionStatus(e)}
+              style={{
+                marginTop: '16px',
+                padding: '10px 20px',
+                fontSize: '14px',
+                background: '#5e8cdbff',
+                color: 'white',
+                border: 'none',
+                borderRadius: '6px',
+                cursor: 'pointer'
+              }}
+            >
+              🔄 Check Transaction Status
+            </button>
+            <details style={{ 
+              marginTop: '12px', 
+              textAlign: 'left',
+              background: '#f8f9fa',
+              padding: '12px',
+              borderRadius: '8px'
+            }}>
+              <summary style={{ 
+                cursor: 'pointer', 
+                fontWeight: 'bold',
+                marginBottom: '8px'
+              }}>
+                📋 Transaction Status
+              </summary>
+              <pre style={{ 
+                background: '#fff', 
+                padding: '12px', 
+                borderRadius: '4px',
+                fontSize: '11px',
+                wordBreak: 'break-all',
+                whiteSpace: 'pre-wrap',
+                border: '1px solid #dee2e6',
+                maxHeight: '200px',
+                overflow: 'auto'
+              }}>
+                {JSON.stringify(currentTransactionStatus, null, 2)}
               </pre>
             </details>
 
