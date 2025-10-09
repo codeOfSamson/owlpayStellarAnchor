@@ -4,9 +4,6 @@ import pkg from '@stellar/typescript-wallet-sdk';
 const { Wallet, SigningKeypair, DomainSigner } = pkg;
 import { 
     Keypair, 
-    Networks, 
-    TransactionBuilder, 
-    Operation,
     WebAuth,
     Transaction
 } from '@stellar/stellar-sdk';
@@ -20,7 +17,7 @@ const PORT = process.env.PORT || 3001;
 
 // Enable CORS for your frontend
 app.use(cors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+    origin: process.env.FRONTEND_URL || 'http://localhost:5173' || 'https://sarhdm-ip-220-133-81-12.tunnelmole.net/',
     credentials: true
 }));
 
@@ -32,12 +29,6 @@ const wallet = Wallet.TestNet();
 app.get('/.well-known/stellar.toml', (req, res) => {
     res.type('text/plain');
     res.sendFile('/.well-known/stellar.toml', { root: '.' });
-});
-
-
-// Health check endpoint
-app.get('/', (req, res) => {
-    res.json({ status: 'ok', message: 'Server is running' });
 });
 
 // Fetch Stellar TOML file
@@ -152,7 +143,7 @@ async function submitChallengeTransaction({ transactionXDR, webAuthEndpoint }) {
     return json.token;
 }
 
-// SEP-10 Authentication endpoint (manual flow)
+// SEP-10 Authentication endpoint (Manual method without Wallet SDK)
 // app.post('/api/auth/sep10', async (req, res) => {
 //     try {
 //         const { secretKey, homeDomain, clientDomain } = req.body;
@@ -226,12 +217,14 @@ async function submitChallengeTransaction({ transactionXDR, webAuthEndpoint }) {
 //         });
 //     }
 // });
+
+
 // SEP-10 Authentication endpoint (Wallet SDK with client domain support)
 app.post('/api/auth/sep10', async (req, res) => {
     try {
-        const { secretKey, homeDomain, clientDomain } = req.body;
+        const { secretKey, homeDomain, clientDomain, backendUrl } = req.body;
 
-        if (!secretKey || !homeDomain) {
+        if (!secretKey || !homeDomain || !backendUrl) {
             return res.status(400).json({ 
                 error: 'Missing required fields: secretKey and homeDomain' 
             });
@@ -248,10 +241,10 @@ app.post('/api/auth/sep10', async (req, res) => {
         
         // If client domain is provided, use domain signing
         if (clientDomain) {
-             const domainSigner = new DomainSigner(
-          `${clientDomain}/sign`,
-          {} // Add authorization headers if needed: { Authorization: `Bearer ${token}` }
-        );
+          const backendSigner = new DomainSigner(
+           `${backendUrl}/sign`,
+           { Authorization: `Bearer ${authToken}`},
+         );
             if (!process.env.CLIENT_DOMAIN_SECRET) {
                 return res.status(400).json({
                     error: 'Client domain requested but CLIENT_DOMAIN_SECRET not configured'
@@ -260,12 +253,10 @@ app.post('/api/auth/sep10', async (req, res) => {
 
                     authToken = await sep10.authenticate({
                         accountKp: authKey,
-                        walletSigner: domainSigner,
+                        walletSigner: backendSigner,
                         clientDomain: clientDomain
                     });
 
-            
-           
             console.log('✅ Authentication successful with client domain');
         } else {
             // Basic authentication without client domain
@@ -386,101 +377,6 @@ async function getAssetCurrency(anchor, assetCode) {
 }
 
 // Generic SEP-24 transaction endpoint (handles both deposit and withdraw)
-// app.post('/api/sep24/transaction', async (req, res) => {
-//     try {
-//         const {
-//             homeDomain,
-//             authToken,
-//             transactionType, // 'deposit' or 'withdraw'
-//             assetCode,
-//             account, // destinationAccount for deposit, withdrawalAccount for withdraw
-//             amount,
-//             lang = 'en'
-//         } = req.body;
-
-//         // Validate required fields
-//         if (!homeDomain || !authToken || !transactionType || !assetCode || !account) {
-//             return res.status(400).json({
-//                 error: 'Missing required fields',
-//                 required: ['homeDomain', 'authToken', 'transactionType', 'assetCode', 'account']
-//             });
-//         }
-
-//         // Validate transaction type
-//         if (!['deposit', 'withdraw'].includes(transactionType)) {
-//             return res.status(400).json({
-//                 error: 'Invalid transaction type',
-//                 message: 'transactionType must be "deposit" or "withdraw"'
-//             });
-//         }
-
-//         console.log(`Starting ${transactionType} for ${assetCode}`);
-//         console.log('Auth token length:', authToken?.length);
-//         console.log('Auth token (first 50 chars):', authToken?.substring(0, 50));
-
-//         // Create anchor and validate asset
-//         const anchor = wallet.anchor({ homeDomain });
-//         await getAssetCurrency(anchor, assetCode);
-
-//         // Build common parameters
-//         const commonParams = {
-//             assetCode,
-//             authToken,
-//             lang,
-//             extraFields: amount ? { amount } : {}
-//         };
-
-//         // Call appropriate method based on transaction type
-//         const sep24 = anchor.sep24();
-//         let result;
-
-//         console.log('Calling anchor SEP-24 endpoint...');
-//         console.log('Auth token being used:', authToken);
-
-//         try {
-//             if (transactionType === 'deposit') {
-//                 result = await sep24.deposit({
-//                     ...commonParams,
-//                     destinationAccount: account
-//                 });
-//             } else {
-//                 result = await sep24.withdraw({
-//                     ...commonParams,
-//                     withdrawalAccount: account
-//                 });
-//             }
-//         } catch (anchorError) {
-//             console.error('Anchor rejected request:', anchorError);
-//             console.error('Anchor error details:', {
-//                 message: anchorError.message,
-//                 response: anchorError.response?.data,
-//                 status: anchorError.response?.status,
-//                 headers: anchorError.response?.headers
-//             });
-//             throw anchorError;
-//         }
-
-//         console.log(`${transactionType} initiated:`, result.id);
-
-//         res.json({
-//             success: true,
-//             transactionType,
-//             url: result.url,
-//             id: result.id,
-//             message: `${transactionType} transaction initiated successfully`
-//         });
-
-//     } catch (error) {
-//         console.error('SEP-24 transaction error:', error);
-//         res.status(500).json({
-//             error: 'Transaction failed',
-//             message: error.message,
-//             details: error.response?.data || error.toString()
-//         });
-//     }
-// });
-
-// Generic SEP-24 transaction endpoint (handles both deposit and withdraw)
 app.post('/api/sep24/transaction', async (req, res) => {
     try {
         const {
@@ -510,7 +406,7 @@ app.post('/api/sep24/transaction', async (req, res) => {
         }
 
         console.log(`Starting ${transactionType} for ${assetCode}`);
-        console.log('Auth token length:', authToken?.length);
+        console.log('Auth token ', authToken);
 
         // Create anchor and validate asset
         const anchor = wallet.anchor({ homeDomain });
