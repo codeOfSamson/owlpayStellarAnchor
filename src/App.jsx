@@ -2,7 +2,9 @@ import { useState } from 'react'
 import reactLogo from './assets/react.svg'
 import viteLogo from '/vite.svg'
 import './App.css'
-import { walletSdk, SigningKeypair, DefaultSigner, DomainSigner } from '@stellar/typescript-wallet-sdk'
+//import axios from 'axios'
+//import { walletSdk, Wallet, SigningKeypair, DefaultSigner, DomainSigner, ApplicationConfiguration, StellarConfiguration } from '@stellar/typescript-wallet-sdk'
+
 
 const AUTH_SECRET_KEY = import.meta.env.VITE_AUTH_SECRET_KEY;
 const WP_ACCESS_HOST = import.meta.env.VITE_WP_ACCESS_HOST;
@@ -22,32 +24,34 @@ function App() {
   const [currentTransactionStatus, setCurrentTransactionStatus] = useState(null);
   const [error, setError] = useState(null);
 
-  let wallet = walletSdk.Wallet.TestNet();
+  //Attempted to call anchor from FE but got CORS error
+//   const customClient = axios.create({
+//     timeout: 1000,
+//   });
+//   let appConfig = new ApplicationConfiguration(DefaultSigner, customClient);
+//   let wallet = new Wallet({
+//     stellarConfiguration: StellarConfiguration.TestNet(),
+//     applicationConfiguration: appConfig,
+//   });
 
-
-const signer = new DomainSigner("https://demo-wallet-server.stellar.org/sign", {
-  Authorization: `Bearer 123456`,
-});
-
-
+//  const anchor = wallet.anchor({ homeDomain: WP_ACCESS_HOST });
 
 const handleAuthenticate = async () => {
     setIsAuthenticating(true);
     setError(null);
-    
-    try {
-        console.log('Starting authentication with:', WP_ACCESS_HOST);
-        
+  try {
+
         const response = await fetch(`${BACKEND_URL}/api/auth/sep10`, {
             method: 'POST',
-            headers: {
+               headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-                secretKey: AUTH_SECRET_KEY,
-                homeDomain: WP_ACCESS_HOST,
-                clientDomain: CLIENT_DOMAIN
-            })
+              body: JSON.stringify({
+              secretKey: AUTH_SECRET_KEY,
+              homeDomain: WP_ACCESS_HOST,
+              clientDomain: CLIENT_DOMAIN,
+              backendUrl: BACKEND_URL
+    })
         });
 
         const data = await response.json();
@@ -55,36 +59,17 @@ const handleAuthenticate = async () => {
         if (!response.ok) {
             throw new Error(data.message || 'Authentication failed');
         }
-        
         setAuthToken(data.token);
-        console.log('Authentication successful!', data);
+
+        console.log('Auth successful!', data);
     } catch (error) {
-        console.error('Authentication failed:', error);
+        console.error('❌ Auth failed:', error);
         setError(error.message);
     } finally {
         setIsAuthenticating(false);
     }
-}
-
-
-const getSep10AuthToken = async () => {
-  const anchor = wallet.anchor({ homeDomain:'anchor-stage.owlpay.com' });
-  const authKey = SigningKeypair.fromSecret(AUTH_SECRET_KEY);
-  const sep10 = await anchor.sep10();
-  const signer = DefaultSigner;
-
-  const getAuthToken = async () => {
-    return sep10.authenticate({
-      accountKp: authKey,
-      walletSigner: signer,
-      clientDomain: CLIENT_DOMAIN
-    });
   };
 
-  const authToken = await getAuthToken();
-
-  return authToken;
-};
 
 const handleTransaction = async (transactionType) => {
     setIsDepositing(true);
